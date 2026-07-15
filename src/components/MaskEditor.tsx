@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   cloneMask,
   emptyMask,
@@ -75,37 +75,37 @@ export function MaskEditor({ image, onViewerFiles, onMaskChange }: Props) {
   const coverage = useMemo(() => estimateMaskCoverage(committedMask), [
     committedMask,
   ]);
+  const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.code === "Space" && event.target === document.body) {
+      event.preventDefault();
+      setIsSpacePressed(true);
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    }
+    if (event.key === "[" || event.key === "]") {
+      setBrushSize((current) =>
+        Math.min(
+          0.2,
+          Math.max(0.01, current + (event.key === "]" ? 0.01 : -0.01)),
+        )
+      );
+    }
+  });
+  const handleKeyUp = useEffectEvent((event: KeyboardEvent) => {
+    if (event.code === "Space") setIsSpacePressed(false);
+  });
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === "Space" && event.target === document.body) {
-        event.preventDefault();
-        setIsSpacePressed(true);
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
-      }
-      if (event.key === "[" || event.key === "]") {
-        setBrushSize((current) =>
-          Math.min(
-            0.2,
-            Math.max(0.01, current + (event.key === "]" ? 0.01 : -0.01)),
-          )
-        );
-      }
-    };
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === "Space") setIsSpacePressed(false);
-    };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  });
+  }, []);
 
   useEffect(() => {
     const canvas = overlayRef.current;

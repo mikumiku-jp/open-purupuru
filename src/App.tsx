@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import mPlusRoundedLicenseUrl from "@fontsource/m-plus-rounded-1c/LICENSE?url";
 import notoSansThaiLicenseUrl from "@fontsource/noto-sans-thai/LICENSE?url";
 import { ImageInput } from "./components/ImageInput";
 import { LanguageMenu } from "./components/LanguageMenu";
 import { MaskEditor } from "./components/MaskEditor";
 import { ModeNavigation } from "./components/ModeNavigation";
-import { Recorder } from "./components/Recorder";
-import { WobbleCanvas } from "./components/WobbleCanvas";
-import { WobbleControls } from "./components/WobbleControls";
 import { disposeLoadedImage, ImageLoadError, loadImage } from "./image-loader";
 import type { ImageErrorCode } from "./image-loader";
 import { appTitle, useI18n } from "./i18n";
@@ -25,6 +30,19 @@ import type {
   WobbleParameters,
   WobbleSurfaceHandle,
 } from "./types";
+
+const Recorder = lazy(async () => {
+  const recorderModule = await import("./components/Recorder");
+  return { default: recorderModule.Recorder };
+});
+const WobbleCanvas = lazy(async () => {
+  const canvasModule = await import("./components/WobbleCanvas");
+  return { default: canvasModule.WobbleCanvas };
+});
+const WobbleControls = lazy(async () => {
+  const controlsModule = await import("./components/WobbleControls");
+  return { default: controlsModule.WobbleControls };
+});
 
 const imageErrorKeys: Record<
   ImageErrorCode,
@@ -62,10 +80,15 @@ export function App() {
   const [sensorTarget, setSensorTarget] = useState<Point>({ x: 0, y: 0 });
   const [imageError, setImageError] = useState<ImageErrorCode | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [hasEnteredPlayMode, setHasEnteredPlayMode] = useState(false);
   const surfaceRef = useRef<WobbleSurfaceHandle>(null);
   const imageRef = useRef<LoadedImage | null>(null);
   const maskRef = useRef(mask);
   const latestImageRequestRef = useRef(0);
+  const changeMode = useCallback((nextMode: AppMode) => {
+    if (nextMode === "play") setHasEnteredPlayMode(true);
+    setMode(nextMode);
+  }, []);
 
   imageRef.current = image;
   maskRef.current = mask;
@@ -80,12 +103,12 @@ export function App() {
       if (!image || isLocked || event.isComposing) return;
       const target = event.target as HTMLElement | null;
       if (target?.matches("input, select, textarea, button")) return;
-      if (event.key === "1") setMode("region-edit");
-      if (event.key === "2") setMode("play");
+      if (event.key === "1") changeMode("region-edit");
+      if (event.key === "2") changeMode("play");
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [image, isLocked]);
+  }, [changeMode, image, isLocked]);
 
   async function handleFiles(files: FileList) {
     if (isLocked) return;
@@ -147,7 +170,23 @@ export function App() {
           </h1>
           <p>{copy.tagline}</p>
         </section>
-        <LanguageMenu />
+        <div className="header-actions">
+          <a
+            className="github-link"
+            href="https://github.com/mikumiku-jp/open-purupuru"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="GitHub repository"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.09 1.15a10.75 10.75 0 0 1 5.63 0c2.14-1.45 3.08-1.15 3.08-1.15.62 1.55.23 2.7.12 2.98.72.79 1.16 1.79 1.16 3.02 0 4.32-2.64 5.27-5.15 5.55.41.35.77 1.04.77 2.1v3.14c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"
+              />
+            </svg>
+          </a>
+          <LanguageMenu />
+        </div>
       </header>
 
       {errorMessage
@@ -170,7 +209,7 @@ export function App() {
         <ModeNavigation
           mode={mode}
           disabled={!image || isLocked}
-          onMode={setMode}
+          onMode={changeMode}
           showGuidance={Boolean(image)}
         />
         <div
@@ -186,73 +225,84 @@ export function App() {
             />
             {mode === "play" && image
               ? (
-                <WobbleControls
-                  disabled={isLocked}
-                  selectedPreset={selectedPreset}
-                  parameters={parameters}
-                  autoMotion={autoMotion}
-                  autoStrength={autoStrength}
-                  autoPeriodMs={autoPeriodMs}
-                  onPreset={selectPreset}
-                  onParameters={setParameters}
-                  onAutoMotion={setAutoMotion}
-                  onAutoStrength={setAutoStrength}
-                  onAutoPeriodMs={setAutoPeriodMs}
-                  onSensorTarget={handleSensorTarget}
-                />
+                <Suspense fallback={null}>
+                  <WobbleControls
+                    disabled={isLocked}
+                    selectedPreset={selectedPreset}
+                    parameters={parameters}
+                    autoMotion={autoMotion}
+                    autoStrength={autoStrength}
+                    autoPeriodMs={autoPeriodMs}
+                    onPreset={selectPreset}
+                    onParameters={setParameters}
+                    onAutoMotion={setAutoMotion}
+                    onAutoStrength={setAutoStrength}
+                    onAutoPeriodMs={setAutoPeriodMs}
+                    onSensorTarget={handleSensorTarget}
+                  />
+                </Suspense>
               )
               : null}
           </aside>
 
-          <div
-            className="region-column"
-            hidden={mode === "play" && Boolean(image)}
-          >
-            <MaskEditor
-              key={image?.url ?? "empty"}
-              image={image}
-              onViewerFiles={(files) => void handleFiles(files)}
-              onMaskChange={setMask}
-            />
-          </div>
+          <Activity mode={mode === "play" && image ? "hidden" : "visible"}>
+            <div className="region-column">
+              <MaskEditor
+                key={image?.url ?? "empty"}
+                image={image}
+                onViewerFiles={(files) => void handleFiles(files)}
+                onMaskChange={setMask}
+              />
+            </div>
+          </Activity>
 
           {image
             ? (
               <div className="play-column" hidden={mode !== "play"}>
-                {mode === "play"
-                  ? (
-                    <section
-                      className="card workspace-card play-card"
-                      aria-labelledby="play-title"
-                    >
-                      <div className="section-heading play-heading">
-                        <h2 id="play-title">{copy.wobbleTitle}</h2>
-                        <p>
-                          {matchMedia("(pointer: coarse)").matches
-                            ? copy.wobbleTouch
-                            : copy.wobbleDesktop}
-                        </p>
-                      </div>
-                      <WobbleCanvas
-                        ref={surfaceRef}
+                <Suspense
+                  fallback={
+                    <div className="card workspace-card play-card" aria-hidden="true" />
+                  }
+                >
+                  {mode === "play"
+                    ? (
+                      <section
+                        className="card workspace-card play-card"
+                        aria-labelledby="play-title"
+                      >
+                        <div className="section-heading play-heading">
+                          <h2 id="play-title">{copy.wobbleTitle}</h2>
+                          <p>
+                            {matchMedia("(pointer: coarse)").matches
+                              ? copy.wobbleTouch
+                              : copy.wobbleDesktop}
+                          </p>
+                        </div>
+                        <WobbleCanvas
+                          ref={surfaceRef}
+                          image={image}
+                          mask={mask}
+                          parameters={parameters}
+                          autoMotion={autoMotion}
+                          autoStrength={autoStrength}
+                          autoPeriodMs={autoPeriodMs}
+                          sensorTarget={sensorTarget}
+                          language={language}
+                        />
+                      </section>
+                    )
+                    : null}
+                  {hasEnteredPlayMode
+                    ? (
+                      <Recorder
                         image={image}
                         mask={mask}
-                        parameters={parameters}
-                        autoMotion={autoMotion}
-                        autoStrength={autoStrength}
-                        autoPeriodMs={autoPeriodMs}
-                        sensorTarget={sensorTarget}
-                        language={language}
+                        surfaceRef={surfaceRef}
+                        onLockedChange={handleLockedChange}
                       />
-                    </section>
-                  )
-                  : null}
-                <Recorder
-                  image={image}
-                  mask={mask}
-                  surfaceRef={surfaceRef}
-                  onLockedChange={handleLockedChange}
-                />
+                    )
+                    : null}
+                </Suspense>
               </div>
             )
             : null}
@@ -261,7 +311,7 @@ export function App() {
           bottom
           mode={mode}
           disabled={!image || isLocked}
-          onMode={setMode}
+          onMode={changeMode}
         />
       </main>
 

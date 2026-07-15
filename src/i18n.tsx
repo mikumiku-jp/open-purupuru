@@ -1,6 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
-import { localizedTranslations } from "./locales";
 import { languages } from "./types";
 import type { Language } from "./types";
 
@@ -383,20 +390,31 @@ const translatedOverrides: Partial<Record<Language, Partial<Translation>>> = {
   },
 };
 
-export const translations = Object.fromEntries(
-  languages.map((
-    language,
-  ) => [
-    language,
-    language === "ja"
-      ? japanese
-      : {
-        ...english,
-        ...translatedOverrides[language],
-        ...localizedTranslations[language as keyof typeof localizedTranslations],
-      },
-  ]),
-) as Record<Language, Translation>;
+function getFallbackTranslation(language: Language): Translation {
+  if (language === "ja") return japanese;
+  return { ...english, ...translatedOverrides[language] };
+}
+
+function getImmediateTranslation(language: Language): Translation | null {
+  if (language === "ja" || language === "en") return getFallbackTranslation(language);
+  return null;
+}
+
+async function loadTranslation(language: Language): Promise<Translation> {
+  const immediateTranslation = getImmediateTranslation(language);
+  if (immediateTranslation) return immediateTranslation;
+
+  try {
+    const { localizedTranslations } = await import("./locales");
+    return {
+      ...getFallbackTranslation(language),
+      ...localizedTranslations[language as keyof typeof localizedTranslations],
+    };
+  } catch (error) {
+    console.error(`Failed to load the ${language} translation`, error);
+    return getFallbackTranslation(language);
+  }
+}
 
 function detectLanguage(language = navigator.language): Language {
   const normalized = language.toLowerCase();
@@ -414,6 +432,18 @@ function detectLanguage(language = navigator.language): Language {
   return directLanguage ?? "ja";
 }
 
+function getInitialLanguage(): Language {
+  const savedLanguage = localStorage.getItem("purupuru-language");
+  return languages.includes(savedLanguage as Language)
+    ? savedLanguage as Language
+    : detectLanguage();
+}
+
+type TranslationState = {
+  language: Language;
+  copy: Translation;
+};
+
 type I18nContextValue = {
   language: Language;
   setLanguage: (language: Language) => void;
@@ -423,23 +453,44 @@ type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>(() => {
-    const savedLanguage = localStorage.getItem("purupuru-language");
-    return languages.includes(savedLanguage as Language)
-      ? savedLanguage as Language
-      : detectLanguage();
+  const [initialLanguage] = useState(getInitialLanguage);
+  const [translationState, setTranslationState] = useState<TranslationState | null>(() => {
+    const initialCopy = getImmediateTranslation(initialLanguage);
+    return initialCopy ? { language: initialLanguage, copy: initialCopy } : null;
   });
+  const translationRequestId = useRef(0);
+
+  const setLanguage = useCallback((language: Language) => {
+    const requestId = ++translationRequestId.current;
+    const immediateTranslation = getImmediateTranslation(language);
+    if (immediateTranslation) {
+      setTranslationState({ language, copy: immediateTranslation });
+      return;
+    }
+
+    void loadTranslation(language).then((copy) => {
+      if (translationRequestId.current !== requestId) return;
+      setTranslationState({ language, copy });
+    });
+  }, []);
 
   useEffect(() => {
-    document.documentElement.lang = language;
-    document.title = appTitle;
-    localStorage.setItem("purupuru-language", language);
-  }, [language]);
+    if (translationState) return;
+    setLanguage(initialLanguage);
+  }, [initialLanguage, setLanguage, translationState]);
 
-  const contextValue = useMemo(
-    () => ({ language, setLanguage, copy: translations[language] }),
-    [language],
+  useEffect(() => {
+    if (!translationState) return;
+    document.documentElement.lang = translationState.language;
+    document.title = appTitle;
+    localStorage.setItem("purupuru-language", translationState.language);
+  }, [translationState]);
+
+  const contextValue = useMemo<I18nContextValue | null>(
+    () => translationState ? { ...translationState, setLanguage } : null,
+    [setLanguage, translationState],
   );
+  if (!contextValue) return null;
   return <I18nContext value={contextValue}>{children}</I18nContext>;
 }
 

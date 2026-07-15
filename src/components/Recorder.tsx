@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ExportCancelledError,
-  exportMedia,
-  inspectExportCapabilities,
-} from "../exporter";
-import type { ExportCapabilities } from "../exporter";
+import { inspectExportCapabilities } from "../export-capabilities";
+import type { ExportCapabilities } from "../export-capabilities";
 import { useI18n } from "../i18n";
 import { recordingLocales } from "../recording-locales";
 import type { PhysicsInputEvent, PhysicsSnapshot } from "../physics";
@@ -42,6 +38,10 @@ function sanitizeFileName(
   return `${safeName}_${
     language === "ja" ? "プルプル" : "purupuru"
   }.${extension}`;
+}
+
+function isExportCancelledError(error: unknown) {
+  return error instanceof Error && error.name === "ExportCancelledError";
 }
 
 export function Recorder({ image, mask, surfaceRef, onLockedChange }: Props) {
@@ -217,6 +217,7 @@ export function Recorder({ image, mask, surfaceRef, onLockedChange }: Props) {
   ) {
     stopRequestedRef.current = false;
     try {
+      const { exportMedia } = await import("../exporter");
       const exportedMedia = await exportMedia({
         image,
         mask,
@@ -241,7 +242,7 @@ export function Recorder({ image, mask, surfaceRef, onLockedChange }: Props) {
         durationSeconds: exportedMedia.durationSeconds,
       });
     } catch (caughtError) {
-      if (!(caughtError instanceof ExportCancelledError)) {
+      if (!isExportCancelledError(caughtError)) {
         setError(copy.exportFailed);
       }
     } finally {

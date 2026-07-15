@@ -17,11 +17,6 @@ import type {
 } from "./types";
 import { WobbleRenderer } from "./webgl-renderer";
 
-export type ExportCapabilities = Record<
-  ExportFormat,
-  { supported: boolean; reason?: string }
->;
-
 type ExportOptions = {
   image: LoadedImage;
   mask: MaskState;
@@ -167,33 +162,6 @@ function validateEncodedSize(blob: Blob) {
   }
 }
 
-export async function inspectExportCapabilities(): Promise<ExportCapabilities> {
-  const fallback: ExportCapabilities = {
-    mp4: { supported: false, reason: "WebCodecs" },
-    webm: { supported: false, reason: "WebCodecs" },
-    gif: { supported: true },
-  };
-  if (!isSecureContext || typeof VideoEncoder === "undefined") return fallback;
-  try {
-    const { canEncodeVideo } = await import("mediabunny");
-    const [mp4, vp9, vp8] = await Promise.all([
-      canEncodeVideo("avc", { width: 720, height: 720, bitrate: 4_000_000 }),
-      canEncodeVideo("vp9", { width: 720, height: 720, bitrate: 4_000_000 }),
-      canEncodeVideo("vp8", { width: 720, height: 720, bitrate: 4_000_000 }),
-    ]);
-    return {
-      mp4: { supported: mp4, reason: mp4 ? undefined : "H.264" },
-      webm: {
-        supported: vp9 || vp8,
-        reason: vp9 || vp8 ? undefined : "VP9 / VP8",
-      },
-      gif: { supported: true },
-    };
-  } catch {
-    return fallback;
-  }
-}
-
 async function exportGif(options: ExportOptions): Promise<ExportedMedia> {
   const { applyPalette, GIFEncoder, quantize } = await import("gifenc");
   const fps = 16;
@@ -258,7 +226,7 @@ async function exportVideo(options: ExportOptions): Promise<ExportedMedia> {
     Output,
     QUALITY_MEDIUM,
     WebMOutputFormat,
-  } = await import("mediabunny");
+  } = await import("./mediabunny-video");
   const fps = 30;
   const size = calculateOutputSize(options.image, 720);
   const outputCanvas = document.createElement("canvas");
