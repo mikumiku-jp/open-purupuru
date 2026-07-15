@@ -1,13 +1,3 @@
-import { applyPalette, GIFEncoder, quantize } from "gifenc";
-import {
-  BufferTarget,
-  canEncodeVideo,
-  CanvasSource,
-  Mp4OutputFormat,
-  Output,
-  QUALITY_MEDIUM,
-  WebMOutputFormat,
-} from "mediabunny";
 import {
   stepFrame,
   WobblePhysics,
@@ -51,6 +41,13 @@ export type ExportedMedia = {
   durationSeconds: number;
   frameCount: number;
 };
+
+export class ExportCancelledError extends Error {
+  constructor() {
+    super("Export canceled");
+    this.name = "ExportCancelledError";
+  }
+}
 
 const maximumOutputBytes = 64 * 1024 * 1024;
 const fullRecordArea = { x: 0, y: 0, width: 1, height: 1 };
@@ -178,6 +175,7 @@ export async function inspectExportCapabilities(): Promise<ExportCapabilities> {
   };
   if (!isSecureContext || typeof VideoEncoder === "undefined") return fallback;
   try {
+    const { canEncodeVideo } = await import("mediabunny");
     const [mp4, vp9, vp8] = await Promise.all([
       canEncodeVideo("avc", { width: 720, height: 720, bitrate: 4_000_000 }),
       canEncodeVideo("vp9", { width: 720, height: 720, bitrate: 4_000_000 }),
@@ -197,6 +195,7 @@ export async function inspectExportCapabilities(): Promise<ExportCapabilities> {
 }
 
 async function exportGif(options: ExportOptions): Promise<ExportedMedia> {
+  const { applyPalette, GIFEncoder, quantize } = await import("gifenc");
   const fps = 16;
   const size = calculateOutputSize(options.image, 480);
   const outputCanvas = document.createElement("canvas");
@@ -206,12 +205,13 @@ async function exportGif(options: ExportOptions): Promise<ExportedMedia> {
   const encoder = GIFEncoder();
   const frameCount = Math.max(1, Math.round(Math.min(5, options.durationSeconds) * fps));
   const rgba = new Uint8Array(size.width * size.height * 4);
+  let palette: ReturnType<typeof quantize> | null = null;
   try {
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-      if (options.shouldStop()) throw new Error("Export canceled");
+      if (options.shouldStop()) throw new ExportCancelledError();
       replay.renderFrame(frameIndex, fps);
       replay.renderer.readRgba(rgba);
-      const palette = quantize(rgba, 256, { format: "rgb565" });
+      palette ??= quantize(rgba, 256, { format: "rgb565" });
       const indexedPixels = applyPalette(rgba, palette, "rgb565");
       encoder.writeFrame(indexedPixels, size.width, size.height, {
         palette,
@@ -219,10 +219,11 @@ async function exportGif(options: ExportOptions): Promise<ExportedMedia> {
         repeat: 0,
       });
       options.onProgress({ phase: "rendering", ratio: (frameIndex + 1) / frameCount });
-      if (frameIndex % 4 === 3) await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
     }
     options.onProgress({ phase: "encoding", ratio: 0.96 });
     encoder.finish();
+    if (options.shouldStop()) throw new ExportCancelledError();
     const gifBytes = new Uint8Array(encoder.bytes());
     const blob = new Blob([gifBytes.buffer], { type: "image/gif" });
     validateEncodedSize(blob);
@@ -239,7 +240,9 @@ async function exportGif(options: ExportOptions): Promise<ExportedMedia> {
   }
 }
 
-async function selectWebMCodec() {
+async function selectWebMCodec(
+  canEncodeVideo: typeof import("mediabunny")["canEncodeVideo"],
+) {
   if (await canEncodeVideo("vp9", { width: 720, height: 720, bitrate: 4_000_000 })) {
     return "vp9" as const;
   }
@@ -247,6 +250,15 @@ async function selectWebMCodec() {
 }
 
 async function exportVideo(options: ExportOptions): Promise<ExportedMedia> {
+  const {
+    BufferTarget,
+    canEncodeVideo,
+    CanvasSource,
+    Mp4OutputFormat,
+    Output,
+    QUALITY_MEDIUM,
+    WebMOutputFormat,
+  } = await import("mediabunny");
   const fps = 30;
   const size = calculateOutputSize(options.image, 720);
   const outputCanvas = document.createElement("canvas");
@@ -258,7 +270,7 @@ async function exportVideo(options: ExportOptions): Promise<ExportedMedia> {
     ? new Mp4OutputFormat({ fastStart: false })
     : new WebMOutputFormat();
   const output = new Output({ format, target });
-  const codec = options.format === "mp4" ? "avc" : await selectWebMCodec();
+  const codec = options.format === "mp4" ? "avc" : await selectWebMCodec(canEncodeVideo);
   const source = new CanvasSource(outputCanvas, {
     codec,
     bitrate: QUALITY_MEDIUM,
@@ -269,7 +281,7 @@ async function exportVideo(options: ExportOptions): Promise<ExportedMedia> {
   const frameCount = Math.max(1, Math.round(Math.min(10, options.durationSeconds) * fps));
   try {
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-      if (options.shouldStop()) throw new Error("Export canceled");
+      if (options.shouldStop()) throw new ExportCancelledError();
       replay.renderFrame(frameIndex, fps);
       await source.add(frameIndex / fps, 1 / fps, {
         keyFrame: frameIndex % (fps * 2) === 0,
@@ -278,6 +290,7 @@ async function exportVideo(options: ExportOptions): Promise<ExportedMedia> {
     }
     options.onProgress({ phase: "encoding", ratio: 0.96 });
     await output.finalize();
+    if (options.shouldStop()) throw new ExportCancelledError();
   } catch (caughtError) {
     if (output.state !== "finalized" && output.state !== "canceled") {
       await output.cancel();

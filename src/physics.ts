@@ -293,7 +293,13 @@ function solveDistanceConstraints(
   deltaSeconds: number,
 ) {
   const alpha = compliance / (deltaSeconds * deltaSeconds);
-  constraints.distances.forEach((constraint, constraintIndex) => {
+  for (
+    let constraintIndex = 0;
+    constraintIndex < constraints.distances.length;
+    constraintIndex += 1
+  ) {
+    const constraint = constraints.distances[constraintIndex];
+    if (!constraint) continue;
     const { a, b, restLength } = constraint;
     const ax = mesh.positions[a * 2] ?? 0;
     const ay = mesh.positions[a * 2 + 1] ?? 0;
@@ -302,11 +308,11 @@ function solveDistanceConstraints(
     const deltaX = ax - bx;
     const deltaY = ay - by;
     const distance = Math.hypot(deltaX, deltaY);
-    if (distance < epsilon) return;
+    if (distance < epsilon) continue;
     const inverseMassA = mesh.inverseMasses[a] ?? 0;
     const inverseMassB = mesh.inverseMasses[b] ?? 0;
     const denominator = inverseMassA + inverseMassB + alpha;
-    if (denominator < epsilon) return;
+    if (denominator < epsilon) continue;
     const previousLambda = constraints.distanceLambdas[constraintIndex] ?? 0;
     const lambdaDelta = (-(distance - restLength) - alpha * previousLambda) /
       denominator;
@@ -317,7 +323,7 @@ function solveDistanceConstraints(
     mesh.positions[a * 2 + 1] = ay + inverseMassA * directionY * lambdaDelta;
     mesh.positions[b * 2] = bx - inverseMassB * directionX * lambdaDelta;
     mesh.positions[b * 2 + 1] = by - inverseMassB * directionY * lambdaDelta;
-  });
+  }
 }
 
 function solveMaximumDistanceConstraints(
@@ -328,7 +334,13 @@ function solveMaximumDistanceConstraints(
   deltaSeconds: number,
 ) {
   const alpha = compliance / (deltaSeconds * deltaSeconds);
-  constraints.distances.forEach((constraint, constraintIndex) => {
+  for (
+    let constraintIndex = 0;
+    constraintIndex < constraints.distances.length;
+    constraintIndex += 1
+  ) {
+    const constraint = constraints.distances[constraintIndex];
+    if (!constraint) continue;
     const { a, b, restLength } = constraint;
     const ax = mesh.positions[a * 2] ?? 0;
     const ay = mesh.positions[a * 2 + 1] ?? 0;
@@ -337,13 +349,13 @@ function solveMaximumDistanceConstraints(
     const deltaX = ax - bx;
     const deltaY = ay - by;
     const distance = Math.hypot(deltaX, deltaY);
-    if (distance < epsilon) return;
+    if (distance < epsilon) continue;
     const constraintValue = restLength * maximumStretchRatio - distance;
     const inverseMassA = mesh.inverseMasses[a] ?? 0;
     const inverseMassB = mesh.inverseMasses[b] ?? 0;
     const denominator = inverseMassA + inverseMassB + alpha;
     const previousLambda = constraints.maximumDistanceLambdas[constraintIndex] ?? 0;
-    if (constraintValue >= 0 && previousLambda <= 0) return;
+    if (constraintValue >= 0 && previousLambda <= 0) continue;
     const nextLambda = Math.max(
       0,
       previousLambda + (-constraintValue - alpha * previousLambda) / denominator,
@@ -356,7 +368,7 @@ function solveMaximumDistanceConstraints(
     mesh.positions[a * 2 + 1] = ay + inverseMassA * directionY * lambdaDelta;
     mesh.positions[b * 2] = bx - inverseMassB * directionX * lambdaDelta;
     mesh.positions[b * 2 + 1] = by - inverseMassB * directionY * lambdaDelta;
-  });
+  }
 }
 
 function solveAreaConstraints(
@@ -366,7 +378,13 @@ function solveAreaConstraints(
   deltaSeconds: number,
 ) {
   const alpha = compliance / (deltaSeconds * deltaSeconds);
-  constraints.areas.forEach((constraint, constraintIndex) => {
+  for (
+    let constraintIndex = 0;
+    constraintIndex < constraints.areas.length;
+    constraintIndex += 1
+  ) {
+    const constraint = constraints.areas[constraintIndex];
+    if (!constraint) continue;
     const { a, b, c, minimumArea } = constraint;
     const ax = mesh.positions[a * 2] ?? 0;
     const ay = mesh.positions[a * 2 + 1] ?? 0;
@@ -376,7 +394,7 @@ function solveAreaConstraints(
     const cy = mesh.positions[c * 2 + 1] ?? 0;
     const constraintValue = calculateTriangleArea(ax, ay, bx, by, cx, cy) - minimumArea;
     const previousLambda = constraints.areaLambdas[constraintIndex] ?? 0;
-    if (constraintValue >= 0 && previousLambda <= 0) return;
+    if (constraintValue >= 0 && previousLambda <= 0) continue;
     const gradients = [
       0.5 * (by - cy),
       0.5 * (cx - bx),
@@ -395,7 +413,7 @@ function solveAreaConstraints(
         (gradients[vertexOffset * 2] ?? 0) ** 2 +
         (gradients[vertexOffset * 2 + 1] ?? 0) ** 2
       ), alpha);
-    if (denominator < epsilon) return;
+    if (denominator < epsilon) continue;
     const nextLambda = Math.max(
       0,
       previousLambda + (-constraintValue - alpha * previousLambda) / denominator,
@@ -410,7 +428,7 @@ function solveAreaConstraints(
         (mesh.positions[vertexIndex * 2 + 1] ?? 0) +
         inverseMass * (gradients[vertexOffset * 2 + 1] ?? 0) * lambdaDelta;
     });
-  });
+  }
 }
 
 function createClusters(mesh: Mesh, threshold = 0.05) {

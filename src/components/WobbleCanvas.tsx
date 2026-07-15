@@ -68,10 +68,12 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
       autoPeriodMs,
       sensorTarget,
     });
+    const canvasCopyRef = useRef(canvasLocales[language]);
     const [error, setError] = useState<string | null>(null);
     const [isRestoring, setIsRestoring] = useState(false);
     const canvasCopy = canvasLocales[language];
 
+    canvasCopyRef.current = canvasCopy;
     animationOptionsRef.current = {
       autoMotion,
       autoStrength,
@@ -110,7 +112,6 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
       if (!canvas) return;
       let animationFrame = 0;
       let isDisposed = false;
-      let isContextLost = false;
       let previousTime = performance.now();
       let automaticElapsedSeconds = 0;
       const physics = new WobblePhysics(
@@ -130,13 +131,12 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
         rendererRef.current = renderer;
         setError(null);
       } catch {
-        setError(canvasCopy.unavailable);
+        setError(canvasCopyRef.current.unavailable);
         return;
       }
       const handleContextLost = (event: Event) => {
         event.preventDefault();
         if (isDisposed) return;
-        isContextLost = true;
         setIsRestoring(true);
       };
       const handleContextRestored = () => {
@@ -145,11 +145,12 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
           renderer.dispose();
           renderer = createRenderer();
           rendererRef.current = renderer;
-          isContextLost = false;
+          setError(null);
           setIsRestoring(false);
         } catch {
           rendererRef.current = null;
-          setError(canvasCopy.unavailable);
+          setIsRestoring(false);
+          setError(canvasCopyRef.current.unavailable);
         }
       };
       canvas.addEventListener("webglcontextlost", handleContextLost);
@@ -218,12 +219,12 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
           }
           return physicsInput;
         });
-        if (!isContextLost) {
+        if (!renderer.isContextLost()) {
           try {
             renderer.render(physics.getFrameOffset());
           } catch {
-            setError(canvasCopy.unavailable);
-            return;
+            if (renderer.isContextLost()) setIsRestoring(true);
+            else setError(canvasCopyRef.current.unavailable);
           }
         }
         animationFrame = requestAnimationFrame(animate);
@@ -240,9 +241,10 @@ export const WobbleCanvas = forwardRef<WobbleSurfaceHandle, Props>(
         physicsRef.current = null;
         captureRef.current = null;
       };
-    }, [canvasCopy.unavailable, image, mask]);
+    }, [image, mask]);
 
     function startDrag(event: React.PointerEvent<HTMLCanvasElement>) {
+      if (activePointerRef.current !== null) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       activePointerRef.current = event.pointerId;
       dragStartRef.current = { x: event.clientX, y: event.clientY };

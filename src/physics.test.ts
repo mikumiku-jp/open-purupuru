@@ -120,4 +120,28 @@ describe("physics replay", () => {
     expect(replay.createSnapshot()).toEqual(source.createSnapshot());
     expect(replay.isFinite()).toBe(true);
   });
+
+  it("preserves the established solver output", () => {
+    const physics = new WobblePhysics(320, 240, fullMask, presets.purupuru);
+    for (let tick = 0; tick < 15; tick += 1) physics.step(getInput(tick));
+    const snapshot = physics.createSnapshot();
+    const sum = (values: number[]) =>
+      values.reduce((total, value) => total + value, 0);
+    const sumSquares = (values: number[]) =>
+      values.reduce((total, value) => total + value * value, 0);
+
+    expect(snapshot.tick).toBe(15);
+    expect(snapshot.randomState).toBe(428790955);
+    expect(sum(snapshot.positions)).toBeCloseTo(324.8518946604567, 10);
+    expect(sumSquares(snapshot.positions)).toBeCloseTo(878.4053114933693, 10);
+    expect(sum(snapshot.velocities)).toBeCloseTo(1395.462960073129, 10);
+    expect(sumSquares(snapshot.velocities)).toBeCloseTo(9485.792149834508, 10);
+    expect(sum(snapshot.secondaryOffsets)).toBeCloseTo(-47.00401622629108, 10);
+    expect(snapshot.frame.position.x).toBeCloseTo(0.059990492320493055, 12);
+    expect(snapshot.frame.position.y).toBeCloseTo(-0.02499603846687211, 12);
+    expect(snapshot.frame.velocity.x).toBeCloseTo(0.0009036119432703771, 12);
+    expect(snapshot.frame.velocity.y).toBeCloseTo(-0.0003765049763626571, 12);
+    expect(snapshot.frame.acceleration.x).toBeCloseTo(-0.08587947705044341, 12);
+    expect(snapshot.frame.acceleration.y).toBeCloseTo(0.03578311543772639, 12);
+  });
 });

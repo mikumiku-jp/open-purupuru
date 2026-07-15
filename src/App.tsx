@@ -64,10 +64,16 @@ export function App() {
   const [isLocked, setIsLocked] = useState(false);
   const surfaceRef = useRef<WobbleSurfaceHandle>(null);
   const imageRef = useRef<LoadedImage | null>(null);
+  const maskRef = useRef(mask);
+  const latestImageRequestRef = useRef(0);
 
   imageRef.current = image;
+  maskRef.current = mask;
 
-  useEffect(() => () => disposeLoadedImage(imageRef.current), []);
+  useEffect(() => () => {
+    latestImageRequestRef.current += 1;
+    disposeLoadedImage(imageRef.current);
+  }, []);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -83,21 +89,33 @@ export function App() {
 
   async function handleFiles(files: FileList) {
     if (isLocked) return;
+    const requestId = latestImageRequestRef.current + 1;
+    latestImageRequestRef.current = requestId;
     try {
       const nextImage = await loadImage(files);
-      const hasPaint = mask.baseFill !== 0 || mask.inverted ||
-        mask.strokes.length > 0;
-      if (image && hasPaint && !window.confirm(copy.replaceConfirm)) {
+      if (requestId !== latestImageRequestRef.current) {
         disposeLoadedImage(nextImage);
         return;
       }
-      disposeLoadedImage(image);
+      const currentImage = imageRef.current;
+      const currentMask = maskRef.current;
+      const hasPaint = currentMask.baseFill !== 0 || currentMask.inverted ||
+        currentMask.strokes.length > 0;
+      if (currentImage && hasPaint && !window.confirm(copy.replaceConfirm)) {
+        disposeLoadedImage(nextImage);
+        return;
+      }
+      disposeLoadedImage(currentImage);
+      imageRef.current = nextImage;
       setImage(nextImage);
-      setMask(cloneEmptyMask());
+      const nextMask = cloneEmptyMask();
+      maskRef.current = nextMask;
+      setMask(nextMask);
       setMode("region-edit");
       setSensorTarget({ x: 0, y: 0 });
       setImageError(null);
     } catch (caughtError) {
+      if (requestId !== latestImageRequestRef.current) return;
       setImageError(
         caughtError instanceof ImageLoadError ? caughtError.code : "decode",
       );

@@ -28,6 +28,8 @@ type PointerAction =
   | { kind: "pan"; pointerId: number; origin: Point; startPan: Point }
   | { kind: "touch-pan"; pointerIds: number[]; origin: Point; startPan: Point };
 
+const maximumMaskHistoryEntries = 100;
+
 function getTouchCentroid(activePointers: Map<number, Point>) {
   const touchPoints = [...activePointers.values()].slice(0, 2);
   if (touchPoints.length < 2) return null;
@@ -119,10 +121,11 @@ export function MaskEditor({ image, onViewerFiles, onMaskChange }: Props) {
   }, [image, visibleMask]);
 
   function commitMask(nextMask: MaskState) {
-    const nextHistory = [
+    const uncappedHistory = [
       ...history.slice(0, historyIndex + 1),
       cloneMask(nextMask),
     ];
+    const nextHistory = uncappedHistory.slice(-maximumMaskHistoryEntries);
     setHistory(nextHistory);
     setHistoryIndex(nextHistory.length - 1);
     onMaskChange(nextMask);

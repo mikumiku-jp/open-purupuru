@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { exportMedia, inspectExportCapabilities } from "../exporter";
+import {
+  ExportCancelledError,
+  exportMedia,
+  inspectExportCapabilities,
+} from "../exporter";
 import type { ExportCapabilities } from "../exporter";
 import { useI18n } from "../i18n";
 import { recordingLocales } from "../recording-locales";
@@ -236,8 +240,10 @@ export function Recorder({ image, mask, surfaceRef, onLockedChange }: Props) {
         height: exportedMedia.height,
         durationSeconds: exportedMedia.durationSeconds,
       });
-    } catch {
-      setError(copy.exportFailed);
+    } catch (caughtError) {
+      if (!(caughtError instanceof ExportCancelledError)) {
+        setError(copy.exportFailed);
+      }
     } finally {
       setState("idle");
       isFinishingRef.current = false;

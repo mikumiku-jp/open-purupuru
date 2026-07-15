@@ -42,22 +42,46 @@ function detectFormat(bytes: Uint8Array): ImageFormat | null {
   return null;
 }
 
-function hasAnimatedContent(bytes: Uint8Array, format: ImageFormat) {
-  const marker = format === "PNG" ? "acTL" : format === "WebP" ? "ANIM" : null;
-  if (!marker) return false;
-  const markerBytes = Array.from(
-    marker,
-    (character) => character.charCodeAt(0),
+function readChunkType(bytes: Uint8Array, offset: number) {
+  if (offset + 4 > bytes.length) return null;
+  return String.fromCharCode(
+    bytes[offset] ?? 0,
+    bytes[offset + 1] ?? 0,
+    bytes[offset + 2] ?? 0,
+    bytes[offset + 3] ?? 0,
   );
-  for (
-    let offset = 0;
-    offset <= bytes.length - markerBytes.length;
-    offset += 1
-  ) {
-    if (
-      markerBytes.every((byte, index) => bytes[offset + index] === byte)
-    ) return true;
+}
+
+function hasPngAnimationChunk(bytes: Uint8Array) {
+  const byteView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 8;
+  while (offset + 12 <= bytes.length) {
+    const payloadLength = byteView.getUint32(offset);
+    const chunkEnd = offset + 12 + payloadLength;
+    if (chunkEnd > bytes.length) return false;
+    if (readChunkType(bytes, offset + 4) === "acTL") return true;
+    offset = chunkEnd;
   }
+  return false;
+}
+
+function hasWebpAnimationChunk(bytes: Uint8Array) {
+  const byteView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const payloadLength = byteView.getUint32(offset + 4, true);
+    const paddedLength = payloadLength + (payloadLength % 2);
+    const chunkEnd = offset + 8 + paddedLength;
+    if (chunkEnd > bytes.length) return false;
+    if (readChunkType(bytes, offset) === "ANIM") return true;
+    offset = chunkEnd;
+  }
+  return false;
+}
+
+export function hasAnimatedContent(bytes: Uint8Array, format: ImageFormat) {
+  if (format === "PNG") return hasPngAnimationChunk(bytes);
+  if (format === "WebP") return hasWebpAnimationChunk(bytes);
   return false;
 }
 
@@ -76,19 +100,25 @@ function calculateWorkingSize(width: number, height: number) {
 }
 
 function validateFileMetadata(file: File, format: ImageFormat) {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  const expectedMime = format === "PNG"
-    ? "image/png"
+  const extensionSeparator = file.name.lastIndexOf(".");
+  const extension = extensionSeparator >= 0 && extensionSeparator < file.name.length - 1
+    ? file.name.slice(extensionSeparator + 1).toLowerCase()
+    : null;
+  const validMimes = format === "PNG"
+    ? ["image/png"]
     : format === "JPEG"
-    ? "image/jpeg"
-    : "image/webp";
+    ? ["image/jpeg", "image/jpg"]
+    : ["image/webp"];
   const validExtensions = format === "JPEG"
     ? ["jpg", "jpeg"]
     : [format.toLowerCase()];
-  if (
-    file.type !== expectedMime || !extension ||
-    !validExtensions.includes(extension)
-  ) throw new ImageLoadError("type");
+  const normalizedMime = file.type.toLowerCase();
+  if (normalizedMime && !validMimes.includes(normalizedMime)) {
+    throw new ImageLoadError("type");
+  }
+  if (extension && !validExtensions.includes(extension)) {
+    throw new ImageLoadError("type");
+  }
 }
 
 async function createWorkingFile(
@@ -97,11 +127,27 @@ async function createWorkingFile(
   width: number,
   height: number,
 ) {
-  const canvas = new OffscreenCanvas(width, height);
-  const context = canvas.getContext("2d", { alpha: true });
-  if (!context) throw new ImageLoadError("decode");
-  context.drawImage(sourceBitmap, 0, 0, width, height);
-  const blob = await canvas.convertToBlob({ type: "image/png" });
+  let blob: Blob;
+  if (typeof OffscreenCanvas !== "undefined") {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw new ImageLoadError("decode");
+    context.drawImage(sourceBitmap, 0, 0, width, height);
+    blob = await canvas.convertToBlob({ type: "image/png" });
+  } else {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw new ImageLoadError("decode");
+    context.drawImage(sourceBitmap, 0, 0, width, height);
+    blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((createdBlob) => {
+        if (createdBlob) resolve(createdBlob);
+        else reject(new ImageLoadError("decode"));
+      }, "image/png");
+    });
+  }
   const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
   return new File([blob], `${baseName}.purupuru-work.png`, {
     type: "image/png",
